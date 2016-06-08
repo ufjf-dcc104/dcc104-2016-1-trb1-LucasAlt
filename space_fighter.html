@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Space Fighter</title>
+		<style>
+			canvas {
+				border: 1px solid black;
+			}
+			body{
+				width: 600px;
+				margin: auto;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Space Fighter</h1>
+		<canvas width="600" height="300">
+			Seu navegador não tem suporte ao canvas!
+			Atualize seu navegador.
+		</canvas>
+		<script>
+			// DEFs
+			var tela = document.getElementsByTagName("canvas")[0];
+			var ctx = tela.getContext("2d");
+			var fps = 60;
+			var dt = 1/fps;
+			var started = false;
+			var win = false;
+			var gameOver = false;
+			var maxLaserCd = 0.2;
+			var maxAcc = 300;
+			var laserVx = 450;
+			var enemyRate = 0.02;
+			var obstacleRate = 0.0008;
+			var score = 0;
+			var maxVida = 100;
+			var maxInv = 0.2;
+			
+			var lasers = [];
+			var inimigos = [];
+			var obstaculos = [];
+			var excluir = [];
+			
+			// imgs
+			var imgRusty = new Image();
+			imgRusty.src = "rusty_ship.png";
+			// A imagem rusty_ship.png foi obtida em http://opengameart.org/content/rusty-ship
+			var imgLaser = new Image();
+			imgLaser.src = "Green_laser.png";
+			// A imagem Green_laser.png foi obtida em https://commons.wikimedia.org/wiki/File:Green_laser.png
+			var imgBg = new Image();
+			imgBg.src = "background.jpg";
+			// A imagem background.jpg foi obtida em https://www.youtube.com/watch?v=_kaqhy2iV7c
+			var imgAlien1 = new Image();
+			imgAlien1.src = "alien1.png";
+			// A imagem alien1.png foi obtida em http://opengameart.org/content/alien-spaceship-invasion e alterada por mim para facilitar o mapeamento
+			var imgMeteor = new Image();
+			imgMeteor.src = "Meteor.gif";
+			// A imagem Meteor.gif foi obtida em http://goldensunwiki.net/wiki/Meteor
+
+			// CLASSES
+			
+			// Sprite
+			function Sprite(){
+				this.x = 0;
+				this.y = 0;
+				this.vx = 0;
+				this.vy = 0;
+				this.ax = 0;
+				this.ay = 0;
+				this.raio = 24;
+			}
+
+			Sprite.prototype.mover = function(){
+				this.vx = this.vx + this.ax*dt;
+				this.x  = this.x  + this.vx*dt;
+				this.vy = this.vy + this.ay*dt;
+				this.y  = this.y  + this.vy*dt;
+			}
+
+			Sprite.prototype.colide = function(alvo){
+				return Math.sqrt(Math.pow(alvo.x - this.x, 2) + Math.pow(alvo.y - this.y, 2)) < (alvo.raio+this.raio);
+			}
+			
+			function criaInimigo(){
+			    inimigo = new Sprite();
+			    inimigo.x = tela.width+inimigo.raio;
+			    inimigo.y = inimigo.raio + Math.random()*(tela.height - 2*inimigo.raio);
+			    inimigo.vx = Math.random()*-100-200;
+			    inimigo.laserCd = 0;
+
+                inimigo.restricoes = function() {
+                    if( this.x < -this.raio )
+                        excluir.push(this);
+                }
+                
+                inimigo.desenhar = function() {
+                    ctx.save();
+				    ctx.translate(this.x, this.y);
+			    	ctx.rotate(Math.PI/2);
+				    ctx.drawImage(imgAlien1, -this.raio, -this.raio, 2*this.raio, 2*this.raio);
+			    	ctx.restore();
+				
+                }
+
+			    inimigos.push(inimigo);
+			}
+
+			function criaObstaculo(){
+				obstaculo = new Sprite();
+				raio = 8+Math.random()*16;
+				var d = Math.sqrt( Math.pow(tela.width,2) + Math.pow(tela.height,2) );
+				obstaculo.x = Math.random() < 0.5? d : -d;
+				obstaculo.y = Math.random() < 0.5? d : -d;
+				obstaculo.alvox = tela.width/4 + Math.random()*tela.width/2;
+				obstaculo.alvoy = tela.height/4 + Math.random()*tela.height/2;
+				obstaculo.vx = -450*(obstaculo.x - obstaculo.alvox )/Math.sqrt( Math.pow(obstaculo.x - obstaculo.alvox,2) );
+				obstaculo.vy = -450*(obstaculo.y - obstaculo.alvoy )/Math.sqrt( Math.pow(obstaculo.y - obstaculo.alvoy,2) );
+
+				obstaculo.ang = 0;
+
+				obstaculo.vang = Math.PI + Math.random()*2*Math.PI;
+
+				obstaculo.restricoes = function() {
+					if( 2*Math.sqrt( Math.pow(tela.width,2) + Math.pow(tela.height,2) ) < Math.sqrt( Math.pow(obstaculo.x - obstaculo.alvox,2) + Math.pow(obstaculo.y - obstaculo.alvoy,2) ) )
+						excluir.push(this);
+				}
+
+				obstaculo.desenhar = function() {
+                    ctx.save();
+				    ctx.translate(this.x, this.y);
+			    	ctx.rotate(this.ang);
+				    ctx.drawImage(imgMeteor, -this.raio, -this.raio, 2*this.raio, 2*this.raio);
+			    	ctx.restore();
+                }
+
+				obstaculo.mover = function(){
+					Sprite.prototype.mover.call(this);
+					this.ang = (this.ang + this.vang*dt)%360;
+				}
+				
+				obstaculos.push(obstaculo);
+			}
+			
+			function ShootLaser(x, y){ 
+				laser = new Sprite();
+				laser.raio = 5;
+				laser.x = x;
+				laser.y = y;
+				laser.vx = laserVx;
+				laser.desenhar = function() {
+					ctx.drawImage(imgLaser, this.x-this.raio, this.y-this.raio, 2*this.raio, 2*this.raio);
+				}
+				laser.restricoes = function() {
+					if( this.x > tela.width+10  || this.x < -10)
+						excluir.push(this);
+				}
+				lasers.push( laser );
+			} 
+			
+			function start(){				
+				score = 0;
+				win = false;
+				started = true;
+				gameOver = false;
+				lasers = [];
+				inimigos = [];
+				obstaculos = [];
+				excluir = [];
+				pc.start();
+			}
+			
+			// OBJETOS
+			var bgpos = 0;
+			var pc = new Sprite();
+			pc.damage = function(dano){
+				this.vida -= dano;
+				this.inv = maxInv;
+				if(pc.vida <= 0){
+					this.vida = 0;
+					gameOver = true;
+					started = false;
+					this.x = -2000;
+					this.y = -2000;
+				} 
+			}
+			pc.desenhar = function(){
+				ctx.save();
+				ctx.translate(this.x, this.y);
+				ctx.rotate(Math.PI/2);
+				ctx.drawImage(imgRusty, 120*pc.dir + 270, 14, 100, 100, -this.raio, -this.raio, 2*this.raio, 2*this.raio);
+				ctx.restore();
+				if( this.shield > 0 ){
+					ctx.strokeStyle = 'blue';
+					ctx.beginPath();
+					ctx.arc(this.x, this.y, this.raio+1, 0, 2*Math.PI);
+					ctx.closePath();
+					ctx.stroke();
+				}
+			}
+			pc.mover = function(){
+				Sprite.prototype.mover.call(this);
+				if(this.inv > 0){
+					this.inv -= dt;
+					this.inv = Math.max(this.inv, 0);
+				}
+				if(this.laserCd > 0){
+					this.laserCd -= dt;
+					this.laserCd = Math.max(this.laserCd, 0);
+				}
+			}
+			pc.restricoes = function(){
+				if(this.x < this.raio){
+					this.x  = this.raio;
+					this.vx = 0;
+					this.ax = 0;
+				}
+				if(this.x > tela.width - this.raio) {
+					this.x  = tela.width - this.raio;
+					this.vx = 0;
+					this.ax = 0;
+				}
+				if(this.y < this.raio){
+					this.y  = this.raio;
+					this.vy = 0;
+					this.ay = 0;
+				}
+				if(this.y > tela.height - this.raio) {
+					this.y  = tela.height - this.raio;
+					this.vy = 0;
+					this.ay = 0;
+				}
+			}
+			pc.start = function(){
+				pc.raio = 20;
+				pc.y = tela.height/2;
+				pc.x = pc.raio;
+				pc.vy = 0;
+				pc.vx = 0;
+				pc.ay = 0;
+				pc.ax = 0;
+				pc.laserCd = 0;
+				pc.dir = 0;
+				pc.vida = maxVida;
+				pc.inv = 0;
+			}
+			
+			
+			// CONTROLES
+			function teclaPressionada(e){
+				if(!started && e.keyCode == 13) start();
+				console.log("Tecla Pressionada: " + e.keyCode);
+				switch(e.keyCode){
+					case 32:
+						if(pc.laserCd == 0){
+							ShootLaser(pc.x, pc.y);
+							pc.laserCd = maxLaserCd;
+						}
+						break;
+					case 37:
+						pc.ax = -maxAcc;
+						break;
+					case 39:
+						pc.ax = maxAcc;
+						break;
+					case 38:
+						pc.ay = -maxAcc;
+						pc.dir = 1;
+						break;
+					case 40:
+						pc.ay = maxAcc;
+						pc.dir = -1;
+						break;
+				}
+			}
+
+			function teclaSolta(e){
+				console.log("Tecla Solta: " + e.keyCode);
+				switch(e.keyCode){
+					case 37:
+					case 39:
+						pc.ax = 0;
+						break;
+					case 38:
+					case 40:
+						pc.ay = 0;
+						pc.dir = 0;
+					    break;
+				}
+			}
+
+			// Loop principal
+			function passo(){
+				//Limpar a tela
+				ctx.clearRect(0,0, tela.width, tela.height);
+
+				//background
+				ctx.drawImage(imgBg, bgpos, 0, tela.width, tela.height);
+				ctx.drawImage(imgBg, tela.width+bgpos, 0, tela.width, tela.height);
+				bgpos = bgpos-1;
+				if(bgpos == -tela.width) bgpos = 0;
+				
+				if(started){
+					// mover
+					pc.mover();
+					for(var l in lasers)
+						lasers[l].mover();
+
+					for(var i in inimigos)
+						inimigos[i].mover();
+						
+					for(var o in obstaculos)
+						obstaculos[o].mover();
+
+					// restricoes
+					pc.restricoes();
+
+					for(var l in lasers)
+						lasers[l].restricoes();
+					for(var e in excluir)
+						lasers.splice(lasers.indexOf(excluir[e]), 1);
+					excluir = [];
+					
+					for(var i in inimigos)
+						inimigos[i].restricoes();
+					for(var e in excluir)
+						inimigos.splice(inimigos.indexOf(excluir[e]), 1);
+					excluir = [];
+
+					for(var o in obstaculos)
+						obstaculos[o].restricoes();
+					for(var e in excluir)
+						obstaculos.splice(obstaculos.indexOf(excluir[e]), 1);
+					excluir = [];
+					
+					// desenhar
+					pc.desenhar();
+					for(var l in lasers)
+						lasers[l].desenhar();
+					for(var i in inimigos)
+						inimigos[i].desenhar();
+					for(var o in obstaculos)
+						obstaculos[o].desenhar();
+					
+					desenhaStatus();
+					
+					// testa colisao
+					for(var i in inimigos){
+						if( inimigos[i].colide(pc) && pc.inv == 0 ){
+							pc.damage(30);
+							inimigos[i].x = -2000;
+						}
+						for(var o in obstaculos)
+							if( inimigos[i].colide(obstaculos[o]) ){
+								inimigos[i].x = -2000;
+							}
+						for(var l in lasers)
+							if( inimigos[i].colide(lasers[l]) ){
+								inimigos[i].x = -2000;
+								score += 100;
+								lasers[l].x = -2000;
+							}
+					}
+
+					for(var o in obstaculos){
+						if( obstaculos[o].colide(pc)  && pc.inv == 0 ){
+							pc.damage(30);
+						}
+						for(var l in lasers)
+							if( obstaculos[o].colide(lasers[l]) ){
+								lasers[l].x = -2000;
+							}
+					}
+					
+					if(Math.random() < enemyRate) criaInimigo();
+					if(Math.random() < obstacleRate) criaObstaculo();
+				}else{
+					if(gameOver){
+						if(win){
+							ctx.fillStyle = "gold";
+							ctx.strokeStyle = "rgb(119,136,153)";
+							ctx.lineWidth = 1;
+							ctx.font = "32px Arial";
+							escreve("YOU WIN!", 220, 146);
+						}else{
+							ctx.fillStyle = "firebrick";
+							ctx.strokeStyle = "red";
+							ctx.lineWidth = 1;
+							ctx.font = "32px Arial";
+							escreve("YOU LOSE!", 200, 146);
+						}
+						ctx.font = "20px Arial";
+						escreve("Score: "+score, 240, 170);
+					}
+					ctx.fillStyle = "rgb(176,196,222)";
+					ctx.strokeStyle = "rgb(119,136,153)";
+					ctx.lineWidth = 1;
+					ctx.font = "20px Arial";
+					escreve("Press Enter to start a new game", 150, 210);
+				}
+			}
+
+			function desenhaStatus(){
+				ctx.fillStyle = "gold";
+				ctx.strokeStyle = "goldenrod";
+				ctx.lineWidth = 1;
+				ctx.font = "20px Arial";
+				escreve("Score: "+ score, 10, 30);
+				ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
+				ctx.strokeStyle = "rgba(218, 0, 0, 0.5)";
+				ctx.beginPath();
+				ctx.rect(150, 12, pc.vida/maxVida*400, 20);
+				ctx.closePath();
+				ctx.fill();
+				ctx.stroke();
+				ctx.strokeStyle = "rgba(119,136,153, 0.8)";
+				ctx.beginPath();
+				ctx.rect(150, 12, 400, 20);
+				ctx.closePath();
+				ctx.stroke();
+			}
+			function escreve(texto, x, y){
+				ctx.fillText(texto, x, y);
+				ctx.strokeText(texto, x, y);
+			}
+			
+			setInterval(passo, 1000/fps);
+			addEventListener("keydown", teclaPressionada);
+			addEventListener("keyup", teclaSolta);
+		</script>
+	</body>
+</html>
